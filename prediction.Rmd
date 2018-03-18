@@ -1,0 +1,101 @@
+---
+title: "Prediction using liear regression model"
+author: "Koki Ando"
+date: "3/16/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+lm(X ~ Y, data)
+
+
+```{r}
+library(data.table)
+library(tidyverse)
+library(PerformanceAnalytics)
+library(corrplot)
+library(GGally)
+library(broom)
+```
+
+```{r}
+salary.table <- 
+  fread("https://s3-ap-southeast-2.amazonaws.com/koki25ando/NBA_season1718_salary.csv", 
+        data.table = FALSE)
+ss <- fread("https://s3-ap-southeast-2.amazonaws.com/playerinfomation/Seasons_Stats.csv",
+            data.table = FALSE)
+stats17 <- 
+  ss %>% filter(Year >= 2017)
+```
+
+```{r}
+stats17 <- 
+  stats17 %>% 
+  select(Year:G, MP, PER, FG:PTS) %>% 
+  distinct(Player, .keep_all = TRUE)
+```
+
+
+```{r}
+stats17 <- stats17 %>% 
+  mutate(MPG = MP/G, PPG = PTS/G, APG = AST/G, 
+         RPG = TRB/G, TOPG = TOV/G, BPG = BLK/G, 
+        SPG = STL/G) 
+```
+
+```{r}
+stats_salary <- merge(stats17, salary.table, by.x = "Player", by.y = "Player")
+names(stats_salary)[40] <- "salary17_18"
+stats_salary <- stats_salary[-39]
+stats_salary %>% head()
+```
+
+
+
+```{r}
+stats_salary <- 
+  stats_salary %>% 
+  select(Player, salary17_18, MPG:SPG, Age, PER, contains("%"))
+```
+
+```{r}
+head(stats_salary)
+```
+
+
+
+```{r}
+corrplot(cor(stats_salary[-1], 
+             use = "complete.obs"), 
+         method = "circle",type = "upper")
+cor(stats_salary[-1])
+```
+
+```{r}
+salary.dataset <- 
+  stats_salary %>% 
+  select(Player:PER, -BPG, -Age)
+
+ggpairs(salary.dataset[-1])
+cor(salary.dataset[-1])[,"salary17_18"]
+```
+
+PPG > MPG > TOPG > RPG > PER > SPG > APG
+
+## Regression Analysis
+```{r}
+mod <- lm(salary17_18~., data=salary.dataset[-1])
+summary(mod)
+```
+
+```{r}
+mod
+```
+
+
+
