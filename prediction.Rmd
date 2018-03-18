@@ -1,101 +1,163 @@
 ---
 title: "Prediction using liear regression model"
 author: "Koki Ando"
-date: "3/16/2018"
-output: html_document
+date: "3/19/2018"
+output:
+  html_document:
+    code_folding: show
+    highlight: tango
+    theme: cosmo
+    toc: yes
+    toc_float: yes
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+## Introduction
 
-lm(X ~ Y, data)
-
+## Preparation
+### Required packages
 
 ```{r}
 library(data.table)
+library(broom)
+library(corrplot)
 library(tidyverse)
 library(PerformanceAnalytics)
-library(corrplot)
 library(GGally)
-library(broom)
+library(plotly)
 ```
 
+### Data Preparation
 ```{r}
 salary.table <- 
   fread("https://s3-ap-southeast-2.amazonaws.com/koki25ando/NBA_season1718_salary.csv", 
         data.table = FALSE)
 ss <- fread("https://s3-ap-southeast-2.amazonaws.com/playerinfomation/Seasons_Stats.csv",
             data.table = FALSE)
-stats17 <- 
-  ss %>% filter(Year >= 2017)
 ```
 
+#### Data Cleaning
 ```{r}
+stats17 <- 
+  ss %>% filter(Year >= 2017)
+
 stats17 <- 
   stats17 %>% 
   select(Year:G, MP, PER, FG:PTS) %>% 
   distinct(Player, .keep_all = TRUE)
-```
 
-
-```{r}
 stats17 <- stats17 %>% 
   mutate(MPG = MP/G, PPG = PTS/G, APG = AST/G, 
          RPG = TRB/G, TOPG = TOV/G, BPG = BLK/G, 
         SPG = STL/G) 
 ```
-
+#### Merging Data
 ```{r}
 stats_salary <- merge(stats17, salary.table, by.x = "Player", by.y = "Player")
 names(stats_salary)[40] <- "salary17_18"
 stats_salary <- stats_salary[-39]
-stats_salary %>% head()
 ```
 
-
-
+## Correlation check
+### Correlation check 1
 ```{r}
-stats_salary <- 
-  stats_salary %>% 
-  select(Player, salary17_18, MPG:SPG, Age, PER, contains("%"))
-```
-
-```{r}
-head(stats_salary)
-```
-
-
-
-```{r}
-corrplot(cor(stats_salary[-1], 
+corrplot(cor(stats_salary %>% 
+               select(salary17_18, MPG:SPG, 
+                      Age, PER, contains("%")), 
              use = "complete.obs"), 
          method = "circle",type = "upper")
-cor(stats_salary[-1])
 ```
 
+### Correlation check 2
 ```{r}
-salary.dataset <- 
+stats_salary_cor <- 
   stats_salary %>% 
-  select(Player:PER, -BPG, -Age)
-
-ggpairs(salary.dataset[-1])
-cor(salary.dataset[-1])[,"salary17_18"]
+  select(salary17_18, PPG, MPG, TOPG, RPG, PER, SPG, APG)
+ggpairs(stats_salary_cor)
+cor(stats_salary_cor)[,"salary17_18"]
 ```
 
-PPG > MPG > TOPG > RPG > PER > SPG > APG
+## Data Visualization
+### Interactive Plot
+```{r}
+names(stats_salary)[5] <- "Team"
+plot_ly(data = stats_salary, x = ~salary17_18, y = ~PPG, color = ~Team,
+        text = ~paste("Player: ", Player))
+```
+
+### Scatter plot with regression line
+```{r}
+stats_salary %>% 
+  ggplot(aes(x = salary17_18, y = APG)) + 
+  geom_point() + 
+  geom_smooth(method = "lm")
+```
 
 ## Regression Analysis
 ```{r}
-mod <- lm(salary17_18~., data=salary.dataset[-1])
-summary(mod)
+stats_salary_regression <- 
+  stats_salary %>% select(salary17_18, MPG:SPG)
+lm(salary17_18~., data=stats_salary_regression)
+stats_salary_regression %>% head()
+```
+
+1.Point per game increases salary by $686,815 per year
+2.The more assists the more salary players get
+3.Less turnovers is great
+
+
+### Is the Player trusted by coach? How many turnovers does the player make?
+```{r}
+summary(stats_salary_regression$TOPG)
 ```
 
 ```{r}
-mod
+avg.minutes <- mean(stats_salary_regression$MPG)
+avg.turnover <- mean(stats_salary_regression$TOPG)
+stats_salary_regression$Trusted <- as.factor(ifelse(stats_salary_regression$MPG >= avg.minutes, "Yes", "No"))
+stats_salary_regression$Agressiveness <- as.factor(ifelse(stats_salary_regression$TOPG >= avg.turnover, "Yes", "No"))
+head(stats_salary_regression)
 ```
+### Scatter plot coloured by how many turnovers they make
+```{r}
+stats_salary_regression %>% 
+  ggplot(aes(x = salary17_18, y = PPG, colour = Agressiveness)) + 
+  geom_point() + 
+  geom_smooth(method="lm")
+```
+
+
+```{r}
+lm(formula = salary17_18 ~ Trusted * Agressiveness, data=stats_salary_regression)
+```
+
+if you are trusted by coach (which means, in this case, you get enough play time) and score, the salary increase by $325,079.
+
+## Modeling & Conclusion
+### Prediction Function
+```{r}
+salary_prediction <- function(m, point, minutes, turn_over){
+  pre_new <- predict(m, data.frame(PPG = point, MPG = minutes, TOPG = turn_over))
+  msg <- paste("PPG:", point, ",MPG:", minutes, ",TOPG:", turn_over, " ==> Expect Salary: $", round(pre_new), sep = "")
+  print(msg)
+}
+```
+
+
+### Analysis conclusion
+```{r}
+model <- lm(formula = salary17_18 ~ PPG + MPG + TOPG, data = stats_salary_regression)
+salary_prediction(model, 23.7, 34.1	, 2.3)
+
+
+# model <- lm(charges ~ age+bmi+children, data=insurance)
+# pre_charges(model, 19, 27.9, 0)
+```
+
+
 
 
 
